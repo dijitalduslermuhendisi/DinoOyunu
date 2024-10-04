@@ -1,0 +1,227 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // I2C adresini ve LCD boyutunu ayarlayın
+
+const int buttonPin = 2;  // Butonun bağlı olduğu pin
+const int buzzerPin = 3;  // Buzzer'ın bağlı olduğu pin
+
+int buttonState = 0;
+int lastButtonState = 0;
+
+byte dino[8] = {
+  B00000,
+  B00111,
+  B00111,
+  B00110,
+  B11110,
+  B01110,
+  B01010,
+  B01010
+};
+
+byte smallCactus[8] = {
+  B00000,
+  B00000,
+  B00000,
+  B00100,
+  B00101,
+  B10111,
+  B11100,
+  B00100
+};
+
+byte mediumCactus[8] = {
+  B00000,
+  B00000,
+  B00100,
+  B00101,
+  B00111,
+  B10110,
+  B11100,
+  B00100
+};
+
+byte largeCactus[8] = {
+  B00100,
+  B00101,
+  B10101,
+  B11101,
+  B00111,
+  B00110,
+  B11100,
+  B00100
+};
+
+byte bird[8] = {
+  B00000,
+  B00000,
+  B00110,
+  B01111,
+  B11110,
+  B00100,
+  B00000,
+  B00000
+};
+
+int dinoPos = 1;  // Dino'nun y pozisyonu (0: zıplıyor, 1: yerde)
+int obstaclePos = 16;
+int obstacleType = 0;  // 0: küçük kaktüs, 1: orta kaktüs, 2: büyük kaktüs, 3: kuş
+unsigned long lastMoveTime = 0;
+int score = 0;
+bool gameOver = false;
+int jumpCounter = 0;
+int gameSpeed = 300;  // Başlangıç hızı (ms)
+int levelCounter = 0;
+
+void setup() {
+  lcd.init();
+  lcd.backlight();
+  lcd.createChar(0, dino);
+  lcd.createChar(1, smallCactus);
+  lcd.createChar(2, mediumCactus);
+  lcd.createChar(3, largeCactus);
+  lcd.createChar(4, bird);
+  
+  pinMode(buttonPin, INPUT_PULLUP);
+  pinMode(buzzerPin, OUTPUT);
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Dino Game");
+  lcd.setCursor(0, 1);
+  lcd.print("Press to start");
+  
+  while (digitalRead(buttonPin) == HIGH) {
+    delay(50);
+  }
+  
+  playStartSound();
+  lcd.clear();
+}
+
+void loop() {
+  if (!gameOver) {
+    unsigned long currentTime = millis();
+    
+    buttonState = digitalRead(buttonPin);
+    if (buttonState == LOW && lastButtonState == HIGH && dinoPos == 1) {
+      dinoPos = 0;  // Zıpla
+      jumpCounter = 3;  // 3 kare boyunca zıplamada kal
+      playJumpSound();
+    }
+    lastButtonState = buttonState;
+    
+    if (currentTime - lastMoveTime > gameSpeed) {
+      lastMoveTime = currentTime;
+      
+      lcd.clear();
+      
+      if (jumpCounter > 0) {
+        jumpCounter--;
+      } else if (dinoPos == 0) {
+        dinoPos = 1;  // Yere in
+      }
+      
+      lcd.setCursor(2, dinoPos);
+      lcd.write(byte(0));  // Dino
+      
+      obstaclePos--;
+      if (obstaclePos < 0) {
+        obstaclePos = 16;
+        score++;
+        levelCounter++;
+        
+        // Her 10 puanda bir hızı artır
+        if (levelCounter % 10 == 0 && gameSpeed > 100) {
+          gameSpeed -= 20;
+        }
+        
+        // Engel seçimi
+        int randomObstacle = random(100);
+        if (score > 30 && randomObstacle < 20) {  // %20 ihtimalle kuş
+          obstacleType = 3;
+        } else if (randomObstacle < 40) {  // %20 ihtimalle küçük kaktüs
+          obstacleType = 0;
+        } else if (randomObstacle < 70) {  // %30 ihtimalle orta kaktüs
+          obstacleType = 1;
+        } else {  // %30 ihtimalle büyük kaktüs
+          obstacleType = 2;
+        }
+      }
+      
+      if (obstacleType == 3) {  // Kuş
+        lcd.setCursor(obstaclePos, 0);
+        lcd.write(byte(4));
+      } else {  // Kaktüsler
+        lcd.setCursor(obstaclePos, 1);
+        lcd.write(byte(obstacleType + 1));
+      }
+      
+      lcd.setCursor(12, 0);
+      lcd.print(score);
+      
+      // Çarpışma kontrolü
+      bool collision = false;
+      if (obstaclePos == 2) {
+        if (obstacleType == 3 && dinoPos == 0) {  // Kuş ile çarpışma
+          collision = true;
+        } else if (obstacleType < 3 && dinoPos == 1) {  // Kaktüs ile çarpışma
+          collision = true;
+        }
+      }
+      
+      if (collision) {
+        gameOver = true;
+        playGameOverSound();
+      }
+    }
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Game Over!");
+    lcd.setCursor(0, 1);
+    lcd.print("Score: ");
+    lcd.print(score);
+    
+    delay(3000);
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Press to restart");
+    
+    while (digitalRead(buttonPin) == HIGH) {
+      delay(50);
+    }
+    
+    gameOver = false;
+    dinoPos = 1;
+    obstaclePos = 16;
+    obstacleType = 0;
+    score = 0;
+    gameSpeed = 300;
+    levelCounter = 0;
+    playStartSound();
+    lcd.clear();
+  }
+}
+
+void playStartSound() {
+  tone(buzzerPin, 523, 100);  // Do
+  delay(100);
+  tone(buzzerPin, 659, 100);  // Mi
+  delay(100);
+  tone(buzzerPin, 784, 100);  // Sol
+  delay(100);
+}
+
+void playJumpSound() {
+  tone(buzzerPin, 1000, 50);
+}
+
+void playGameOverSound() {
+  tone(buzzerPin, 200, 200);
+  delay(200);
+  tone(buzzerPin, 150, 200);
+  delay(200);
+  tone(buzzerPin, 100, 400);
+}
